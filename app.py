@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
 from PIL import Image
+import torch
 import io
 import base64
 import sqlite3
@@ -83,8 +84,12 @@ async def predict_waste(file: UploadFile = File(...)):
     image_bytes = await file.read()
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    # 2. Run YOLO inference with 0.5 confidence threshold
-    results = model(image, conf=0.5)
+    # Resize high-res photos to prevent Render 512MB RAM OOM crash
+    image.thumbnail((640, 640))
+
+    # 2. Run YOLO inference inside torch.no_grad()
+    with torch.no_grad():
+        results = model(image, conf=0.4, imgsz=640)
 
     detections = []
     detected_class_names = []
@@ -107,12 +112,11 @@ async def predict_waste(file: UploadFile = File(...)):
         detected_class_names.append(class_name)
 
     # 3. Generate Annotated Image (Base64)
-    # plot() returns a numpy array with bounding boxes rendered by YOLO
     annotated_arr = results[0].plot()
     annotated_img = Image.fromarray(annotated_arr[..., ::-1])  # BGR to RGB
     
     buf = io.BytesIO()
-    annotated_img.save(buf, format="JPEG")
+    annotated_img.save(buf, format="JPEG", quality=80)
     base64_image = base64.b64encode(buf.getvalue()).decode("utf-8")
     annotated_data_url = f"data:image/jpeg;base64,{base64_image}"
 
