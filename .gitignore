@@ -1,0 +1,5 @@
+venv/
+__pycache__/
+*.pyc
+ecoreward.db
+yolov8n.pt

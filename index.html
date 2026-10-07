@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EcoReward | Waste Detection & Rewards</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-extrabold text-xl border border-emerald-500/30">
+          ♻
+        </div>
+        <div>
+          <h1 class="font-bold text-lg text-white">EcoReward</h1>
+          <p class="text-xs text-slate-400">AI Plastic Waste Classification & Incentive System</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/60 px-4 py-1.5 rounded-full text-xs font-semibold text-emerald-300">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        API Connected
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-6 py-8 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-8">
+    
+    <!-- Left Column: Upload & Image Viewer -->
+    <div class="lg:col-span-2 flex flex-col gap-6">
+      
+      <!-- Upload Box -->
+      <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-emerald-500/70 bg-slate-900/40 rounded-2xl p-6 transition flex flex-col items-center justify-center cursor-pointer text-center group">
+        <input type="file" id="fileInput" accept="image/*" class="hidden" />
+        <div class="w-12 h-12 rounded-xl bg-slate-800 group-hover:bg-emerald-500/10 text-slate-400 group-hover:text-emerald-400 flex items-center justify-center text-2xl transition mb-2">
+          📷
+        </div>
+        <p class="text-sm font-semibold text-slate-200">Click to upload or drag & drop</p>
+        <p class="text-xs text-slate-400 mt-1">Upload an image of recyclable plastic items</p>
+      </div>
+
+      <!-- Detection Output Display -->
+      <div id="imageCard" class="hidden relative bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden p-2 flex items-center justify-center min-h-[350px]">
+        <img id="annotatedImage" alt="Annotated Detection" class="max-w-full max-h-[520px] rounded-lg object-contain shadow-md" />
+        <div id="loadingOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+          <div class="w-8 h-8 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+          <p class="text-xs font-medium text-slate-300">Running YOLOv8 inference & calculating points...</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Stats, Breakdown & Recent Scans -->
+    <div class="flex flex-col gap-6">
+
+      <!-- Total Points Card -->
+      <div class="bg-gradient-to-br from-emerald-950/60 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-6 relative overflow-hidden shadow-lg shadow-emerald-950/20">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs uppercase tracking-wider font-semibold text-emerald-400">Total Points Awarded</span>
+          <span class="text-xl">🏆</span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span id="totalPoints" class="text-5xl font-extrabold text-white">0</span>
+          <span class="text-sm font-semibold text-emerald-400">Eco-Points</span>
+        </div>
+        <p id="detectionSummary" class="text-xs text-slate-400 mt-2">Upload a scan to calculate rewards.</p>
+      </div>
+
+      <!-- Detected Objects Breakdown -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col">
+        <h3 class="font-bold text-sm text-slate-200 mb-3 flex items-center gap-2">
+          <span>🔍</span> Current Scan Breakdown
+        </h3>
+        <div id="detectionsList" class="space-y-2 max-h-[220px] overflow-y-auto text-xs text-slate-400 pr-1">
+          <p class="text-center text-slate-500 py-6">No active detections.</p>
+        </div>
+      </div>
+
+      <!-- Recent History (From SQLite DB) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+            <span>📜</span> Database History Log
+          </h3>
+          <button id="refreshHistoryBtn" class="text-[11px] text-emerald-400 hover:underline">Refresh</button>
+        </div>
+        <div id="historyList" class="space-y-2 max-h-[200px] overflow-y-auto text-xs text-slate-400 pr-1">
+          <p class="text-center text-slate-500 py-4">Loading history...</p>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+    EcoReward System • YOLOv8 + FastAPI Backend + SQLite Storage
+  </footer>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    const imageCard = document.getElementById("imageCard");
+    const annotatedImage = document.getElementById("annotatedImage");
+    const loadingOverlay = document.getElementById("loadingOverlay");
+    const totalPointsEl = document.getElementById("totalPoints");
+    const detectionSummary = document.getElementById("detectionSummary");
+    const detectionsList = document.getElementById("detectionsList");
+    const historyList = document.getElementById("historyList");
+    const refreshHistoryBtn = document.getElementById("refreshHistoryBtn");
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files.length) uploadAndPredict(e.target.files[0]);
+    });
+
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("border-emerald-500");
+    });
+    dropzone.addEventListener("dragleave", () => {
+      dropzone.classList.remove("border-emerald-500");
+    });
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("border-emerald-500");
+      if (e.dataTransfer.files.length) uploadAndPredict(e.dataTransfer.files[0]);
+    });
+
+    async function uploadAndPredict(file) {
+      imageCard.classList.remove("hidden");
+      loadingOverlay.classList.remove("hidden");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          body: formData
+        });
+        const data = await response.json();
+
+        loadingOverlay.classList.add("hidden");
+
+        if (data.status === "success") {
+          // Render returned Base64 annotated image directly
+          annotatedImage.src = data.annotated_image;
+          totalPointsEl.innerText = data.total_reward_points;
+          detectionSummary.innerText = `Identified ${data.detections_count} recyclable item(s).`;
+
+          // Populate breakdown
+          detectionsList.innerHTML = "";
+          if (data.detections.length === 0) {
+            detectionsList.innerHTML = '<p class="text-center text-slate-500 py-4">No recyclable items met the 0.5 confidence threshold.</p>';
+          } else {
+            data.detections.forEach(item => {
+              const div = document.createElement("div");
+              div.className = "p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50 flex items-center justify-between";
+              div.innerHTML = `
+                <div>
+                  <div class="font-semibold text-slate-200">${item.class}</div>
+                  <div class="text-[10px] text-slate-400">Confidence: ${(item.confidence * 100).toFixed(1)}%</div>
+                </div>
+                <span class="font-bold text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded-md border border-emerald-800/50">
+                  +${item.points_earned} pts
+                </span>
+              `;
+              detectionsList.appendChild(div);
+            });
+          }
+
+          // Refresh database history list
+          fetchHistory();
+        } else {
+          alert("Error processing the image.");
+        }
+      } catch (err) {
+        loadingOverlay.classList.add("hidden");
+        alert("Failed to communicate with API server at " + API_BASE);
+      }
+    }
+
+    async function fetchHistory() {
+      try {
+        const res = await fetch(`${API_BASE}/history?limit=5`);
+        const json = await res.json();
+        if (json.status === "success" && json.history.length > 0) {
+          historyList.innerHTML = "";
+          json.history.forEach(row => {
+            const el = document.createElement("div");
+            el.className = "p-2 rounded-lg bg-slate-800/40 border border-slate-800 flex items-center justify-between";
+            el.innerHTML = `
+              <div class="truncate max-w-[160px]">
+                <div class="font-medium text-slate-300 truncate">${row.filename}</div>
+                <div class="text-[10px] text-slate-500">${row.timestamp}</div>
+              </div>
+              <span class="text-emerald-400 font-semibold text-xs">+${row.total_points} pts</span>
+            `;
+            historyList.appendChild(el);
+          });
+        } else {
+          historyList.innerHTML = '<p class="text-center text-slate-500 py-3">No scans recorded yet.</p>';
+        }
+      } catch (e) {
+        historyList.innerHTML = '<p class="text-center text-slate-500 py-3">Failed to load history.</p>';
+      }
+    }
+
+    refreshHistoryBtn.addEventListener("click", fetchHistory);
+    fetchHistory();
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Path configuration
+path: dataset
+train: train/images
+val: val/images
+
+# Classes
+nc: 3
+names:
+  0: PET_Bottle
+  1: HDPE_Plastic
+  2: Non_Recyclable 
