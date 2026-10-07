@@ -24,7 +24,7 @@
           <p class="text-xs text-slate-400">AI Plastic Waste Classification & Incentive System</p>
         </div>
       </div>
-      <div class="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/60 px-4 py-1.5 rounded-full text-xs font-semibold text-emerald-300">
+      <div id="statusBadge" class="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/60 px-4 py-1.5 rounded-full text-xs font-semibold text-emerald-300">
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
         API Connected
       </div>
@@ -52,7 +52,7 @@
         <img id="annotatedImage" alt="Annotated Detection" class="max-w-full max-h-[520px] rounded-lg object-contain shadow-md" />
         <div id="loadingOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
           <div class="w-8 h-8 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
-          <p class="text-xs font-medium text-slate-300">Running YOLOv8 inference & calculating points...</p>
+          <p id="loadingText" class="text-xs font-medium text-slate-300">Running YOLOv8 inference & calculating points...</p>
         </div>
       </div>
 
@@ -106,18 +106,20 @@
   </footer>
 
   <script>
-   const API_BASE = "https://ecoreward-7uy1.onrender.com";
+    const API_BASE = "https://ecoreward-7uy1.onrender.com";
 
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("fileInput");
     const imageCard = document.getElementById("imageCard");
     const annotatedImage = document.getElementById("annotatedImage");
     const loadingOverlay = document.getElementById("loadingOverlay");
+    const loadingText = document.getElementById("loadingText");
     const totalPointsEl = document.getElementById("totalPoints");
     const detectionSummary = document.getElementById("detectionSummary");
     const detectionsList = document.getElementById("detectionsList");
     const historyList = document.getElementById("historyList");
     const refreshHistoryBtn = document.getElementById("refreshHistoryBtn");
+    const statusBadge = document.getElementById("statusBadge");
 
     dropzone.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", (e) => {
@@ -137,9 +139,23 @@
       if (e.dataTransfer.files.length) uploadAndPredict(e.dataTransfer.files[0]);
     });
 
+    async function checkApiHealth() {
+      try {
+        const res = await fetch(`${API_BASE}/`, { method: "GET", mode: "cors" });
+        if (res.ok) {
+          statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> API Connected';
+          statusBadge.className = "flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/60 px-4 py-1.5 rounded-full text-xs font-semibold text-emerald-300";
+        }
+      } catch (err) {
+        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> Backend Waking Up...';
+        statusBadge.className = "flex items-center gap-2 bg-amber-950/60 border border-amber-800/60 px-4 py-1.5 rounded-full text-xs font-semibold text-amber-300";
+      }
+    }
+
     async function uploadAndPredict(file) {
       imageCard.classList.remove("hidden");
       loadingOverlay.classList.remove("hidden");
+      loadingText.innerText = "Sending image to Render API (may take ~20s if waking up)...";
 
       const formData = new FormData();
       formData.append("file", file);
@@ -147,22 +163,26 @@
       try {
         const response = await fetch(`${API_BASE}/predict`, {
           method: "POST",
-          body: formData
+          body: formData,
+          mode: "cors"
         });
-        const data = await response.json();
 
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
         loadingOverlay.classList.add("hidden");
 
         if (data.status === "success") {
-          // Render returned Base64 annotated image directly
           annotatedImage.src = data.annotated_image;
           totalPointsEl.innerText = data.total_reward_points;
           detectionSummary.innerText = `Identified ${data.detections_count} recyclable item(s).`;
 
-          // Populate breakdown
           detectionsList.innerHTML = "";
-          if (data.detections.length === 0) {
-            detectionsList.innerHTML = '<p class="text-center text-slate-500 py-4">No recyclable items met the 0.5 confidence threshold.</p>';
+          if (!data.detections || data.detections.length === 0) {
+            detectionsList.innerHTML = '<p class="text-center text-slate-500 py-4">No recyclable items met the 0.4 confidence threshold.</p>';
           } else {
             data.detections.forEach(item => {
               const div = document.createElement("div");
@@ -180,22 +200,24 @@
             });
           }
 
-          // Refresh database history list
           fetchHistory();
         } else {
-          alert("Error processing the image.");
+          alert(`Inference message: ${data.message || "Failed to process image"}`);
         }
       } catch (err) {
         loadingOverlay.classList.add("hidden");
-        alert("Failed to communicate with API server at " + API_BASE);
+        console.error("Full upload error:", err);
+        alert(`API Request Error:\n${err.message}`);
       }
     }
 
     async function fetchHistory() {
       try {
-        const res = await fetch(`${API_BASE}/history?limit=5`);
+        const res = await fetch(`${API_BASE}/history?limit=5`, { method: "GET", mode: "cors" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        if (json.status === "success" && json.history.length > 0) {
+        
+        if (json.status === "success" && json.history && json.history.length > 0) {
           historyList.innerHTML = "";
           json.history.forEach(row => {
             const el = document.createElement("div");
@@ -213,11 +235,12 @@
           historyList.innerHTML = '<p class="text-center text-slate-500 py-3">No scans recorded yet.</p>';
         }
       } catch (e) {
-        historyList.innerHTML = '<p class="text-center text-slate-500 py-3">Failed to load history.</p>';
+        historyList.innerHTML = '<p class="text-center text-slate-500 py-3">No scan history available.</p>';
       }
     }
 
     refreshHistoryBtn.addEventListener("click", fetchHistory);
+    checkApiHealth();
     fetchHistory();
   </script>
 </body>
